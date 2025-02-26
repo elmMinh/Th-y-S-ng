@@ -1,0 +1,37 @@
+
+services:
+  server:
+    build: .
+    image: gcc-core
+    volumes:
+      - ./Chap02/server/:/app
+    tty: true
+    ports:
+      - 8080:8080
+    networks:
+      net-172.20.0.0:
+        ipv4_address: 172.20.0.100
+  client-1:
+    build: .
+    image: gcc-core
+    volumes:
+      - ./Chap02/client:/app
+    tty: true
+    networks:
+      net-172.20.0.0:
+        ipv4_address: 172.20.0.101
+  client-2:
+    build: .
+    image: gcc-core
+    volumes:
+      - ./Chap02/client:/app
+    tty: true
+    networks:
+      net-172.20.0.0:
+        ipv4_address: 172.20.0.102
+networks:
+      net-172.20.0.0:
+        name: net-172.20.0.0
+        ipam:
+            config:
+                - subnet: 172.20.0.0/24
