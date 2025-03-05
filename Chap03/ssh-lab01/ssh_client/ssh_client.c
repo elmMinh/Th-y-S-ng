@@ -18,7 +18,7 @@ int main() {
         exit(-1);
     }
 
-    ssh_options_set(my_ssh_session, SSH_OPTIONS_HOST, "172.19.0.2"); //Modify this ip
+    ssh_options_set(my_ssh_session, SSH_OPTIONS_HOST, "172.19.0.3"); //Modify this ip
     ssh_options_set(my_ssh_session, SSH_OPTIONS_PORT, &(int){22}); 
     ssh_options_set(my_ssh_session, SSH_OPTIONS_USER, "seed");
 

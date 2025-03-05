@@ -1,30 +1,40 @@
 version: '3.8'
-
 services:
   ssh-server:
     build:
       context: ./ssh_server
-    image: ssh_server_img  # Đổi đúng tên
+    image: ssh_server_img
     container_name: ssh_server
     tty: true
-    ports:
-      - "2222:22"  # Map cổng SSH (host:container)
+    expose:
+      - "22"  # Expose SSH port cho các container khác
     networks:
-      - ssh_network  # Kết nối mạng chung
+      - ssh_network
 
-  ssh-client: 
+  web-server:
+    image: python:3.9
+    container_name: web_server
+    command: python3 -m http.server 8080
+    ports:
+      - "8080:8080"  # Mở cổng web server
+    networks:
+      - ssh_network
+
+  ssh-client:
     build:
       context: ./ssh_client
-    image: ssh_client_img  # Đổi đúng tên
-    container_name: ssh_client 
-    volumes: 
+    image: ssh_client_img
+    container_name: ssh_client
+    volumes:
       - ./ssh_client:/app
     depends_on:
       - ssh-server
-    stdin_open: true  
+    stdin_open: true
     tty: true
+    ports:
+      - "9000:9000"
     networks:
-      - ssh_network  # Kết nối mạng chung
+      - ssh_network
 
 networks:
   ssh_network:
