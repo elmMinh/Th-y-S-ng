@@ -46,7 +46,7 @@ void handle_client(SSL *ssl) {
         "Content-Type: text/plain\r\n"
         "Content-Length: 13\r\n"
         "\r\n"
-        "Hello, cả nhà yêu của chồng!\n";
+        "Hello, HTTPS!\n";
     
     SSL_write(ssl, response, strlen(response));
     SSL_shutdown(ssl);

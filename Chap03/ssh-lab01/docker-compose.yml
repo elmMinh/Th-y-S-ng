@@ -7,7 +7,7 @@ services:
     container_name: ssh_server
     tty: true
     expose:
-      - "22"  # Expose SSH port cho các container khác
+      - "22"
     networks:
       - ssh_network
 
@@ -16,7 +16,7 @@ services:
     container_name: web_server
     command: python3 -m http.server 8080
     ports:
-      - "8080:8080"  # Mở cổng web server
+      - "8080:8080"
     networks:
       - ssh_network
 

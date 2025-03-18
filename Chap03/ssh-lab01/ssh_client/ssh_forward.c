@@ -1,124 +1,81 @@
 #include <libssh/libssh.h>
-#include <stdio.h>   // Thêm thư viện cần thiết
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-#define LOCAL_PORT 9000
-#define REMOTE_HOST "web_server"  // Chuyển tiếp đến container web server
-#define REMOTE_PORT 8080
-
-void handle_connection(int client_sock, ssh_session session) {
-    ssh_channel channel = ssh_channel_new(session);
-    if (channel == NULL) {
-        fprintf(stderr, "Error creating channel: %s\n", ssh_get_error(session));
-        close(client_sock);
-        return;
-    }
-
-    int rc = ssh_channel_open_forward(channel, REMOTE_HOST, REMOTE_PORT, "0.0.0.0", LOCAL_PORT);
-    if (rc != SSH_OK) {
-        fprintf(stderr, "Error opening forward channel: %s\n", ssh_get_error(session));
-        ssh_channel_free(channel);
-        close(client_sock);
-        return;
-    }
-
-    char buffer[1024];
-    int nbytes;
-    while ((nbytes = read(client_sock, buffer, sizeof(buffer))) > 0) {
-        ssh_channel_write(channel, buffer, nbytes);
-        nbytes = ssh_channel_read(channel, buffer, sizeof(buffer), 0);
-        if (nbytes > 0) write(client_sock, buffer, nbytes);
-    }
-
-    ssh_channel_send_eof(channel);
-    ssh_channel_close(channel);
-    ssh_channel_free(channel);
-    close(client_sock);
-}
+#include <unistd.h> // Để sử dụng sleep()
 
 int main() {
-    const char *ssh_host = "172.19.0.2";  // Dùng tên container SSH server
+    ssh_session my_ssh_session;
+    ssh_channel channel;
+    int rc;
+    int verbosity = SSH_LOG_PROTOCOL;
+    int local_port = 9000;  // Port trên host machine
+    int remote_port = 8080; // Port trên web server container
+    const char *remote_host = "web_server"; // Tên container web-server trong docker network
 
-    ssh_session session = ssh_new();
-    if (!session) {
+    // Khởi tạo SSH session
+    my_ssh_session = ssh_new();
+    if (my_ssh_session == NULL) {
         fprintf(stderr, "Error creating SSH session\n");
-        exit(-1);
+        return -1;
     }
 
-    ssh_options_set(session, SSH_OPTIONS_HOST, ssh_host);
-    
-    int port = 22;  // Sửa lỗi kiểu dữ liệu
-    ssh_options_set(session, SSH_OPTIONS_PORT, &port);
-    
-    ssh_options_set(session, SSH_OPTIONS_USER, "seed");
+    // Thiết lập các tùy chọn cho SSH session
+    ssh_options_set(my_ssh_session, SSH_OPTIONS_HOST, "ssh_server"); // Kết nối qua ssh-server
+    ssh_options_set(my_ssh_session, SSH_OPTIONS_USER, "user"); // Thay bằng username của bạn nếu cần
+    ssh_options_set(my_ssh_session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
 
-    int rc = ssh_connect(session);
+    // Kết nối đến SSH server
+    rc = ssh_connect(my_ssh_session);
     if (rc != SSH_OK) {
-        fprintf(stderr, "Error connecting: %s\n", ssh_get_error(session));
-        ssh_free(session);
-        exit(-1);
+        fprintf(stderr, "Error connecting to SSH server: %s\n", ssh_get_error(my_ssh_session));
+        ssh_free(my_ssh_session);
+        return -1;
     }
 
-    rc = ssh_userauth_password(session, NULL, "dees");
+    // Xác thực bằng password (có thể thay bằng key-based)
+    rc = ssh_userauth_password(my_ssh_session, NULL, "password"); // Thay "password" bằng mật khẩu thực tế
     if (rc != SSH_AUTH_SUCCESS) {
-        fprintf(stderr, "Error authenticating: %s\n", ssh_get_error(session));
-        ssh_disconnect(session);
-        ssh_free(session);
-        exit(-1);
+        fprintf(stderr, "Error authenticating: %s\n", ssh_get_error(my_ssh_session));
+        ssh_disconnect(my_ssh_session);
+        ssh_free(my_ssh_session);
+        return -1;
     }
 
     printf("Successfully connected and authenticated!\n");
 
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror("Error creating socket");
-        ssh_disconnect(session);
-        ssh_free(session);
-        exit(-1);
+    // Tạo kênh cho port forwarding
+    channel = ssh_channel_new(my_ssh_session);
+    if (channel == NULL) {
+        fprintf(stderr, "Error creating channel\n");
+        ssh_disconnect(my_ssh_session);
+        ssh_free(my_ssh_session);
+        return -1;
     }
 
-    struct sockaddr_in server_addr = {0};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(LOCAL_PORT);
-
-    if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Error binding socket");
-        close(sockfd);
-        ssh_disconnect(session);
-        ssh_free(session);
-        exit(-1);
+    // Thiết lập local port forwarding (từ localhost:9000 đến web_server:8080)
+    rc = ssh_channel_open_forward(channel, remote_host, remote_port, "0.0.0.0", local_port);
+    if (rc != SSH_OK) {
+        fprintf(stderr, "Error opening forward channel: %s\n", ssh_get_error(my_ssh_session));
+        ssh_channel_free(channel);
+        ssh_disconnect(my_ssh_session);
+        ssh_free(my_ssh_session);
+        return -1;
     }
 
-    if (listen(sockfd, 5) < 0) {
-        perror("Error listening on socket");
-        close(sockfd);
-        ssh_disconnect(session);
-        ssh_free(session);
-        exit(-1);
-    }
+    printf("Port forwarding established: localhost:%d -> %s:%d\n", local_port, remote_host, remote_port);
+    printf("Access http://localhost:%d to reach the web server.\n", local_port);
 
-    printf("Listening on localhost:%d, forwarding to %s:%d\n", LOCAL_PORT, REMOTE_HOST, REMOTE_PORT);
-
+    // Giữ chương trình chạy để duy trì kết nối
     while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        int client_sock = accept(sockfd, (struct sockaddr*)&client_addr, &client_len);
-        if (client_sock < 0) {
-            perror("Error accepting connection");
-            continue;
-        }
-
-        handle_connection(client_sock, session);
+        sleep(1); // Có thể thêm logic xử lý dữ liệu nếu cần
     }
 
-    close(sockfd);
-    ssh_disconnect(session);
-    ssh_free(session);
+    // Giải phóng tài nguyên (không chạy đến đây vì vòng lặp vô hạn)
+    ssh_channel_close(channel);
+    ssh_channel_free(channel);
+    ssh_disconnect(my_ssh_session);
+    ssh_free(my_ssh_session);
+
     return 0;
 }
